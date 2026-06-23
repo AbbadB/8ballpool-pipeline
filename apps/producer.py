@@ -9,10 +9,9 @@ import os
 import random
 import time
 
-from kafka import KafkaProducer
-
 from eightball.events import make_init, make_match, make_purchase
 from eightball.schemas import validate_event
+from kafka import KafkaProducer
 
 # In Docker, services set KAFKA_BOOTSTRAP=kafka:9092 (internal listener).
 # On the host, the default uses the external listener on localhost:29092.

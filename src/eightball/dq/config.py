@@ -1,7 +1,7 @@
 """Declarative DQ configuration: the country lookup and the rule set applied to
 each event-type. This is the "extensible" surface -- add a Rule here, no engine
 change."""
-from eightball.dq.rules import Rule, uppercase, map_id_to_name
+from eightball.dq.rules import Rule, map_id_to_name, uppercase
 
 COUNTRY_LOOKUP = {"1": "Portugal", "2": "Brazil", "3": "United Kingdom",
                   "4": "Germany", "5": "United States"}

@@ -4,9 +4,9 @@ Reads the whole `events.clean` topic from earliest, computes the daily
 distinct-user aggregate, and writes Parquet + a console preview."""
 import os
 
-from pyspark.sql import SparkSession, functions as F
-
 from eightball.aggregations.daily import daily_distinct_users
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 

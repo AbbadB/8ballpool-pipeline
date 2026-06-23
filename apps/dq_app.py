@@ -11,9 +11,8 @@ import logging
 import os
 import time
 
-from kafka import KafkaConsumer, KafkaProducer
-
 from eightball.dq.pipeline import process_event
+from kafka import KafkaConsumer, KafkaProducer
 
 # In Docker, services set KAFKA_BOOTSTRAP=kafka:9092 (internal listener).
 # On the host, the default uses the external listener on localhost:29092.

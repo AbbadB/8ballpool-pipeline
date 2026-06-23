@@ -4,7 +4,8 @@ Country enrichment (ADR-0001): match/purchase carry no country, so we join them
 to a user dimension built from init events. Matches are attributed to BOTH
 players' countries (ADR-0004). Windows are 1-minute tumbling on event-time
 (epoch millis -> timestamp, ADR-0006)."""
-from pyspark.sql import DataFrame, functions as F
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
 
 
 def _minute():

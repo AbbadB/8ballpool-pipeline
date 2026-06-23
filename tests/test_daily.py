@@ -1,7 +1,6 @@
 import pytest
-from pyspark.sql import SparkSession
-
 from eightball.aggregations.daily import daily_distinct_users
+from pyspark.sql import SparkSession
 
 
 @pytest.fixture(scope="module")

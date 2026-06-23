@@ -1,4 +1,4 @@
-from eightball.dq.pipeline import process_event, DQResult
+from eightball.dq.pipeline import process_event
 
 
 def test_valid_event_is_transformed_and_ok():
@@ -55,9 +55,12 @@ def test_dead_letter_keeps_original_payload():
 
 def test_batch_partitions_into_ok_and_dead_letter():
     events = [
-        {"event-type": "init", "time": 1, "user-id": "u1", "country": "1", "platform": "ios"},  # ok
-        {"event-type": "logout"},                                                                # dlq
-        {"event-type": "init", "time": 1, "user-id": "u2", "platform": "ios"},                   # dlq (no country)
+        # ok
+        {"event-type": "init", "time": 1, "user-id": "u1", "country": "1", "platform": "ios"},
+        # dlq: unknown event-type
+        {"event-type": "logout"},
+        # dlq: schema-invalid (no country)
+        {"event-type": "init", "time": 1, "user-id": "u2", "platform": "ios"},
     ]
     results = [process_event(e) for e in events]
     assert [r.status for r in results] == ["ok", "dead_letter", "dead_letter"]

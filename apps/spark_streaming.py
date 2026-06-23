@@ -14,11 +14,15 @@ production upgrade is native stateful streaming aggregation with watermarks.
 """
 import os
 
-from pyspark.sql import SparkSession, functions as F
-
 from eightball.aggregations.minute import (
-    build_user_dim, enrich, minute_purchase_metrics,
-    minute_revenue_by_country, minute_matches_by_country)
+    build_user_dim,
+    enrich,
+    minute_matches_by_country,
+    minute_purchase_metrics,
+    minute_revenue_by_country,
+)
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 OUT = "/output"

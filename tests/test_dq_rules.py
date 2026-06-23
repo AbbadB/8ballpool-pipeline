@@ -1,4 +1,4 @@
-from eightball.dq.rules import apply_rules, Rule, uppercase, map_id_to_name
+from eightball.dq.rules import Rule, apply_rules, map_id_to_name, uppercase
 
 LOOKUP = {"1": "Portugal", "2": "Brazil"}
 

@@ -1,9 +1,12 @@
 import pytest
-from pyspark.sql import SparkSession
-
 from eightball.aggregations.minute import (
-    build_user_dim, enrich, minute_purchase_metrics,
-    minute_revenue_by_country, minute_matches_by_country)
+    build_user_dim,
+    enrich,
+    minute_matches_by_country,
+    minute_purchase_metrics,
+    minute_revenue_by_country,
+)
+from pyspark.sql import SparkSession
 
 
 @pytest.fixture(scope="module")

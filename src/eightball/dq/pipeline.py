@@ -9,7 +9,7 @@ from typing import Optional
 
 from eightball.dq.config import rules_for
 from eightball.dq.rules import apply_rules
-from eightball.schemas import validate_event, SchemaError
+from eightball.schemas import SchemaError, validate_event
 
 
 @dataclass

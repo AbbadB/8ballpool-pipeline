@@ -1,5 +1,6 @@
-.PHONY: test up down demo logs
+.PHONY: test lint up down demo logs replay-dlq
 test:        ; python -m pytest -q
+lint:        ; ruff check src apps tests
 up:          ; docker compose up -d --build
 down:        ; docker compose down -v
 demo:        ; docker compose up --build

@@ -1,5 +1,5 @@
 import pytest
-from eightball.schemas import validate_event, SchemaError
+from eightball.schemas import SchemaError, validate_event
 
 VALID_INIT = {"event-type": "init", "time": 1719100000000,
               "user-id": "u1", "country": "1", "platform": "ios"}

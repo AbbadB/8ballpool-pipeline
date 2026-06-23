@@ -2,7 +2,8 @@
 
 Pure transform: a DataFrame of clean init events -> daily aggregate. Event time
 is epoch millis (ADR-0006)."""
-from pyspark.sql import DataFrame, functions as F
+from pyspark.sql import DataFrame
+from pyspark.sql import functions as F
 
 
 def daily_distinct_users(events: DataFrame) -> DataFrame:
