@@ -116,37 +116,44 @@ these drive the design:
 
 Each unit has one purpose, a defined interface, and is independently testable.
 
-### 4.1 `producer`
+### 4.1 `apps/producer.py`
 - **Does:** generates a realistic stream of `init`/`match`/`in-app-purchase`
   events; guarantees `init` precedes any other event for a given user; emits
   `country` as an id and `platform` lowercase so DQ rules have real work;
   validates each event against the provided JSON schema before publishing.
 - **Interface:** config (event rate, # users, country/platform pools) → Kafka
-  topic `events.raw`.
+  topic `events.raw`. Pure logic in `src/eightball/events.py` + `schemas.py`.
 - **Depends on:** Kafka, schemas.
 
-### 4.2 `dq_streams` — generic DQ rule engine
+### 4.2 `apps/dq_app.py` — generic DQ rule engine
 - **Does:** consume `events.raw`, apply an ordered, **declarative** rule set,
   produce to `events.clean`. Rules: `uppercase(field)`,
   `map_id_to_name(field, lookup)`. Adding a field/transform is one config entry,
   no code change — satisfies the spec's "must be generic/extensible."
 - **Interface:** `apply_rules(event: dict, rules: list[Rule]) -> dict` (pure,
-  unit-testable) + a thin Kafka consume/produce loop around it.
+  in `src/eightball/dq/rules.py`; config in `dq/config.py`) + a thin Kafka
+  consume/produce loop in `apps/dq_app.py`.
 - **Depends on:** Kafka. (No native Kafka Streams in Python — see ADR-0001.)
 
-### 4.3 `spark_jobs/batch.py` — daily aggregator (Beginner tier)
+### 4.3 `apps/spark_batch.py` — daily aggregator (Beginner tier)
 - **Does:** read `events.clean`, compute **distinct users per day by country and
   platform** (from `init` events, which carry both). Output Parquet + console.
-- **Interface:** `daily_distinct_users(df) -> df` (pure DataFrame transform,
-  tested with fixtures).
+- **Interface:** `daily_distinct_users(df) -> df` (pure DataFrame transform in
+  `src/eightball/aggregations/daily.py`, tested with fixtures); `apps/spark_batch.py`
+  is the thin Kafka-read + write wrapper.
 
-### 4.4 `spark_jobs/streaming.py` — minute aggregator (Pro tier)
-- **Does:** Structured Streaming. Build `user → (country_name, platform)`
-  dimension from `init`; join match/purchase to it (enrichment); per **1-minute
-  event-time tumbling window** with watermark, compute: purchase count, revenue
-  sum, distinct users, revenue by country, matches by country (counted under
-  **both** players — ADR-0004). Output Parquet + console.
-- **Interface:** pure windowed-aggregation functions + a streaming wrapper.
+### 4.4 `apps/spark_streaming.py` — minute aggregator (Pro tier)
+- **Does:** Structured Streaming via `foreachBatch`. Per micro-batch: update a
+  user dimension from `init`, enrich match/purchase against it, **append** the
+  enriched events to accumulating stores, and **recompute** the per-minute
+  aggregates from the full accumulated set — purchase count, revenue sum, distinct
+  users, revenue by country, matches by country (under **both** players, ADR-0004).
+  Recomputing from accumulated enriched events (not per-batch partials) keeps the
+  totals correct across batches, including distinct users (ADR-0008). Output
+  Parquet + console.
+- **Interface:** pure aggregation functions in `src/eightball/aggregations/minute.py`
+  (`build_user_dim`, `enrich`, `minute_*`); `apps/spark_streaming.py` is the
+  `foreachBatch` wrapper.
 
 ---
 
@@ -161,7 +168,7 @@ Each unit has one purpose, a defined interface, and is independently testable.
 | 0005 | Structured Streaming, not legacy DStreams | Event-time windows + watermarking; the modern, defensible choice. |
 | 0006 | Event-time = epoch milliseconds | Faithful to real telemetry; demonstrates event-time vs processing-time understanding. |
 | 0007 | AI-assisted agentic development under a defined harness | Disclosed, not hidden. 7 rules (spec-first, TDD control loop, human-owns-decisions, small reviewable steps, verify-before-done, grounded-in-real-files, provenance honesty) enforced by `CLAUDE.md` + a test-gate hook. Deliberately minimal tooling — no custom skills/subagent fleet (proportionality). |
-| 0008 | Streaming via `foreachBatch` + maintained user dimension | Per micro-batch: update user dim from init, enrich match/purchase, merge minute aggregates. Avoids stream-stream join watermark/time-bound complexity. At scale → Delta merge / native windowed aggregation. |
+| 0008 | Streaming via `foreachBatch` + recompute from accumulated enriched events | Per micro-batch: update user dim from init, enrich match/purchase, append enriched events, recompute minute aggregates from the full accumulated set. Correct across batches incl. distinct users (can't sum partials). O(n)/batch; at scale → native stateful aggregation with watermark + `approx_count_distinct`. |
 
 Each ADR is a short file in `docs/decisions/` (context → decision → consequences
 → alternatives rejected).
@@ -184,7 +191,7 @@ Each ADR is a short file in `docs/decisions/` (context → decision → conseque
 - **Integration (lightweight):** one end-to-end smoke test through Docker Compose
   (produce N events → assert clean topic + aggregate output), kept minimal.
 
-Target ~10–15 focused tests. Quality and intent over count.
+~20 focused unit tests + one gated end-to-end smoke. Quality and intent over count.
 
 ---
 
@@ -203,19 +210,26 @@ Target ~10–15 focused tests. Quality and intent over count.
 
 ```
 8ballpool-pipeline/
-  docker-compose.yml
+  docker-compose.yml        # kafka (KRaft) + producer + dq + spark services
+  Dockerfile                # python image for producer/dq
   README.md                 # run instructions, trade-offs, "at 100x", schema notes,
                             #   "Development approach" (AI disclosure → ADR-0007)
-  Makefile                  # make up / make demo / make test
+  Makefile                  # make up / make demo / make test / make down
   CLAUDE.md                 # the agentic-dev harness (7 rules, conventions, DoD)
-  .claude/
-    settings.json           # test-gate hook (verify-before-done, mechanized)
+  pytest.ini
+  requirements.txt          # runtime deps        requirements-dev.txt  # + pyspark, pytest
+  .claude/settings.json     # test-gate hook (verify-before-done, mechanized)
+  .github/workflows/ci.yml  # CI: unit suite + end-to-end pipeline
   docs/
     specs/                  # this document
-    decisions/              # ADR-0001 … 0007
+    plans/                  # TDD implementation plan
+    decisions/              # ADR-0001 … 0008
   schemas/                  # provided JSON schemas (draft-03)
-  producer/
-  dq_streams/
-  spark_jobs/               # batch.py, streaming.py, common/
-  tests/
+  src/eightball/            # pure, infra-free logic (unit-tested)
+    schemas.py  events.py
+    dq/         rules.py, config.py
+    aggregations/  daily.py, minute.py
+  apps/                     # thin Kafka/Spark wrappers
+    producer.py  dq_app.py  spark_batch.py  spark_streaming.py
+  tests/                    # test_schemas/events/dq_rules/daily/minute + test_smoke_e2e
 ```
