@@ -93,6 +93,11 @@ the offending rule or upstream producer, and replay the `original` payloads back
 onto `events.raw`. Failures are also logged as structured lines with a periodic
 `{processed, clean, dead_letter}` counter.
 
+**Replay in practice:** run `make replay-dlq` (or `python apps/replay_dlq.py`) to
+re-feed the dead-lettered `original` payloads onto `events.raw`. Structured
+payloads are replayed; malformed-JSON originals are skipped (they need a manual
+fix). The pure extraction is in `src/eightball/dq/replay.py`.
+
 ## What each tier delivers
 
 | Tier | Requirement | Where |
