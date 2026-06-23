@@ -161,6 +161,7 @@ Each unit has one purpose, a defined interface, and is independently testable.
 | 0005 | Structured Streaming, not legacy DStreams | Event-time windows + watermarking; the modern, defensible choice. |
 | 0006 | Event-time = epoch milliseconds | Faithful to real telemetry; demonstrates event-time vs processing-time understanding. |
 | 0007 | AI-assisted agentic development under a defined harness | Disclosed, not hidden. 7 rules (spec-first, TDD control loop, human-owns-decisions, small reviewable steps, verify-before-done, grounded-in-real-files, provenance honesty) enforced by `CLAUDE.md` + a test-gate hook. Deliberately minimal tooling — no custom skills/subagent fleet (proportionality). |
+| 0008 | Streaming via `foreachBatch` + maintained user dimension | Per micro-batch: update user dim from init, enrich match/purchase, merge minute aggregates. Avoids stream-stream join watermark/time-bound complexity. At scale → Delta merge / native windowed aggregation. |
 
 Each ADR is a short file in `docs/decisions/` (context → decision → consequences
 → alternatives rejected).
