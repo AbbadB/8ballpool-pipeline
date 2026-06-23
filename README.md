@@ -65,9 +65,13 @@ docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
 docker compose run --rm spark-batch       # prints the table + writes output/daily_distinct_users
 ```
 
-**3. Confirm the per-minute (Pro tier) outputs.** Stop the writers first so the
-`output/minute_*` parquet dirs aren't read mid-overwrite (the append-only
-`output/_enriched_*` stores are the stable source of truth — see ADR-0008):
+**3. Confirm the per-minute (Pro tier) outputs.** Each micro-batch rewrites the
+`output/minute_*` dirs with `mode("overwrite")`, which deletes-then-writes and is
+**not atomic** — so reading one *while the stream is running* can briefly hit an
+empty/half-written dir (`UNABLE_TO_INFER_SCHEMA`). It's a read-while-writing race,
+not a data bug. Either read the always-safe append-only `output/_enriched_*` stores
+(the source of truth the `minute_*` views are recomputed from — see ADR-0008), or
+stop the writers first so the `minute_*` dirs are quiescent:
 
 ```bash
 docker compose stop producer spark-streaming
@@ -142,15 +146,42 @@ A dead-letter record looks like:
   "failed_at": 1782235335939 }
 ```
 
-**Reprocessing:** `events.dlq` *is* the replay path — inspect the dead letters, fix
-the offending rule or upstream producer, and replay the `original` payloads back
-onto `events.raw`. Failures are also logged as structured lines with a periodic
+Failures are also logged as structured lines with a periodic
 `{processed, clean, dead_letter}` counter.
 
-**Replay in practice:** run `make replay-dlq` (or `python apps/replay_dlq.py`) to
-re-feed the dead-lettered `original` payloads onto `events.raw`. Structured
-payloads are replayed; malformed-JSON originals are skipped (they need a manual
-fix). The pure extraction is in `src/eightball/dq/replay.py`.
+### Reprocessing failed data
+
+`events.dlq` *is* the reprocessing path — no data is lost, it's quarantined until
+fixed. The workflow:
+
+1. **Inspect** the dead letters and group by reason:
+   ```bash
+   docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+     --bootstrap-server localhost:9092 --topic events.dlq --from-beginning --timeout-ms 5000
+   ```
+   Each record carries `{reason, original, failed_at}`, so the reason tells you
+   *why* it failed (e.g. `schema: 'country' is a required property`).
+
+2. **Fix the root cause** — the reason points at one of two places:
+   - a **DQ rule / lookup** issue → edit `src/eightball/dq/config.py` (e.g. add a
+     missing `country` id to `COUNTRY_LOOKUP`), or
+   - an **upstream producer** sending malformed/incomplete events → fix the producer.
+
+3. **Replay** the quarantined originals back through the pipeline:
+   ```bash
+   make replay-dlq          # or: python apps/replay_dlq.py
+   ```
+   `replay_dlq.py` reads `events.dlq` and re-produces each `original` onto
+   `events.raw`, where it flows through the (now-fixed) DQ layer again. Structured
+   payloads are replayed; malformed-JSON originals are **skipped** (they can't be
+   re-serialized as-is and need a manual fix). It logs `{replayed, skipped}`.
+
+4. **Verify** the replayed events now reach `events.clean` instead of `events.dlq`.
+
+**Note (at-least-once):** a replayed event that still fails simply returns to the
+DLQ; and because delivery is at-least-once, a replay tool should dedupe on a
+business key in production (the events carry no unique id today — see ADR-0008).
+The pure extraction logic is in `src/eightball/dq/replay.py` (unit-tested).
 
 ## What each tier delivers
 
