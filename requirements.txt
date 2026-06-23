@@ -1,2 +1,4 @@
-kafka-python==2.0.2
+# kafka-python 2.0.2 fails on Python 3.12 (broken six.moves vendored import);
+# 3.0.x restores 3.12 compatibility.
+kafka-python==3.0.2
 jsonschema==4.22.0
