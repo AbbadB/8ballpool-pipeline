@@ -1,5 +1,7 @@
 # 8 Ball Pool — Real-Time Data Pipeline
 
+[![CI](https://github.com/AbbadB/8ballpool-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/AbbadB/8ballpool-pipeline/actions/workflows/ci.yml)
+
 A self-contained streaming pipeline for 8 Ball Pool game telemetry. It ingests
 `init`, `match`, and `in-app-purchase` events, applies generic data-quality
 transformations, and produces clean daily and per-minute aggregates — covering
