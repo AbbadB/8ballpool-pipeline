@@ -70,7 +70,7 @@ docker compose run --rm spark-batch       # prints the table + writes output/dai
 **not atomic** — so reading one *while the stream is running* can briefly hit an
 empty/half-written dir (`UNABLE_TO_INFER_SCHEMA`). It's a read-while-writing race,
 not a data bug. Either read the always-safe append-only `output/_enriched_*` stores
-(the source of truth the `minute_*` views are recomputed from — see ADR-0008), or
+(the source of truth the `minute_*` views are recomputed from — see [ADR-0008](docs/decisions/0008-streaming-mechanics.md)), or
 stop the writers first so the `minute_*` dirs are quiescent:
 
 ```bash
@@ -109,14 +109,14 @@ make down            # tear down
 
 - **producer** emits schema-valid events; `init` always precedes a user's other
   events; `country` is emitted as an **id** and `platform` lowercase so the DQ
-  layer has real work (see ADR-0003).
+  layer has real work (see [ADR-0003](docs/decisions/0003-country-as-id.md)).
 - **dq_app** is a *generic, extensible* rule engine: uppercase fields, map id→name.
   Rules are declarative config — adding one needs no engine change. It is a pure
-  column transformer; it does **not** enrich (see ADR-0001).
+  column transformer; it does **not** enrich (see [ADR-0001](docs/decisions/0001-enrichment-in-spark.md)).
 - **spark_batch** computes daily distinct users by country and platform.
 - **spark_streaming** builds a user dimension from `init`, enriches match/purchase
   with the player's country, and computes per-minute aggregates correctly across
-  micro-batches (see ADR-0008).
+  micro-batches (see [ADR-0008](docs/decisions/0008-streaming-mechanics.md)).
 
 Two Kafka listeners are configured: `kafka:9092` (internal, for the containers)
 and `localhost:29092` (external, for clients on the host).
@@ -180,7 +180,7 @@ fixed. The workflow:
 
 **Note (at-least-once):** a replayed event that still fails simply returns to the
 DLQ; and because delivery is at-least-once, a replay tool should dedupe on a
-business key in production (the events carry no unique id today — see ADR-0008).
+business key in production (the events carry no unique id today — see [ADR-0008](docs/decisions/0008-streaming-mechanics.md)).
 The pure extraction logic is in `src/eightball/dq/replay.py` (unit-tested).
 
 ## What each tier delivers
@@ -198,15 +198,15 @@ The pure extraction logic is in `src/eightball/dq/replay.py` (unit-tested).
 
 - **Only `init` carries `country` and `platform`.** match/purchase have no
   country, so "by country" aggregations require enriching against the user's init
-  event (ADR-0001).
+  event ([ADR-0001](docs/decisions/0001-enrichment-in-spark.md)).
 - **`country` vs `country_id`.** The schema field is `country` (a string), but the
   DQ brief asks to map `country_id → country_name`. The producer emits `country`
-  as an id and the DQ layer resolves it; unknown ids → `UNKNOWN` (ADR-0003).
+  as an id and the DQ layer resolves it; unknown ids → `UNKNOWN` ([ADR-0003](docs/decisions/0003-country-as-id.md)).
 - **`platform` is nested on `match`** (`user-a-postmatch-info.platform`) but
   top-level on `init`. The DQ engine addresses fields by dotted path.
 - **`match.game-tier` declares `minimum` twice** (`1` then `5`) — a duplicate-key
   bug in the provided schema (last value wins). Flagged, not depended on.
-- **`time`** is treated as epoch milliseconds, used as event-time (ADR-0006).
+- **`time`** is treated as epoch milliseconds, used as event-time ([ADR-0006](docs/decisions/0006-event-time.md)).
 - **`match.user-b-postmatch-info` is optional** while `user-a`'s is required.
 
 ---
@@ -238,11 +238,11 @@ plan (TDD, step-by-step) in [`docs/plans/`](docs/plans/).
   appended outside the checkpoint transaction, so a mid-batch restart can
   double-count — and events have no unique id to dedupe on. Production fix:
   producer-assigned event id + idempotent sink, or native checkpointed stateful
-  aggregation (ADR-0008).
+  aggregation ([ADR-0008](docs/decisions/0008-streaming-mechanics.md)).
 - **Native stateful streaming aggregation.** The per-minute recompute is O(n) per
   batch (correct, not incremental). At scale: `withWatermark().groupBy(window()).agg()`
   with a state store and `approx_count_distinct` for mergeable distinct counts
-  (ADR-0008).
+  ([ADR-0008](docs/decisions/0008-streaming-mechanics.md)).
 - **Schema Registry + Avro/Protobuf** on the producer side, replacing hand-rolled
   JSON validation.
 - **Partition + parallelism tuning.** At 150M+ events/day, partition topics by
