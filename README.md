@@ -39,6 +39,60 @@ RUN_E2E=1 python -m pytest tests/test_smoke_e2e.py -v
 Requirements: Docker + Docker Compose. For running the unit tests directly,
 Python 3.11+ and `pip install -r requirements-dev.txt` (Java 8/11/17 for PySpark).
 
+## Verifying it works (for reviewers)
+
+Three levels of evidence, fastest first.
+
+**1. Tests + CI (no infra, ~seconds).** The logic is proven by the unit suite, and
+the CI badge above runs lint + unit + a full Docker end-to-end on every push.
+
+```bash
+make test     # ~27 unit tests: schema validation, DQ rules, DQ pipeline, aggregations
+make lint     # ruff, clean
+```
+
+**2. Watch it run live.** `make demo` brings the whole stack up and streams the
+per-minute aggregates to the console. Then inspect the topics and outputs:
+
+```bash
+make up                                   # detached: kafka + producer + dq + spark-streaming
+
+# DQ transforms applied (platform UPPERCASED, country_name resolved from id):
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic events.clean --from-beginning --max-messages 3 --timeout-ms 5000
+
+# Daily aggregation (Beginner tier): distinct users by country + platform
+docker compose run --rm spark-batch       # prints the table + writes output/daily_distinct_users
+```
+
+**3. Confirm the per-minute (Pro tier) outputs.** Stop the writers first so the
+`output/minute_*` parquet dirs aren't read mid-overwrite (the append-only
+`output/_enriched_*` stores are the stable source of truth — see ADR-0008):
+
+```bash
+docker compose stop producer spark-streaming
+# then read any of: output/minute_purchase_metrics, output/minute_revenue_by_country,
+# output/minute_matches_by_country  (parquet) — one row per (minute, country).
+```
+
+**4. See the data-quality safety net.** Send a bad event and watch it land in the
+dead-letter queue with a reason — the service keeps running:
+
+```bash
+# (with the stack up) send an init missing its required 'country'
+python - <<'PY'
+import json; from kafka import KafkaProducer
+p = KafkaProducer(bootstrap_servers="localhost:29092", value_serializer=lambda v: json.dumps(v).encode())
+p.send("events.raw", {"event-type":"init","time":1,"user-id":"x","platform":"ios"}); p.flush()
+PY
+docker exec kafka /opt/kafka/bin/kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 --topic events.dlq --from-beginning --timeout-ms 5000
+# -> {"reason": "schema: 'country' is a required property", "original": {...}, "failed_at": ...}
+
+make replay-dlq      # re-feed dead-lettered originals back onto events.raw after a fix
+make down            # tear down
+```
+
 ---
 
 ## Architecture
