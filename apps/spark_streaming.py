@@ -2,10 +2,15 @@
 
 Reads `events.clean`, and per micro-batch (foreachBatch, ADR-0008):
   1. updates the user dimension (parquet) from any init events in the batch,
-  2. reads the full dimension, enriches match/purchase,
-  3. computes minute aggregates for the batch and merges into output parquet,
+  2. enriches this batch's match/purchase against the full dimension and APPENDS
+     the enriched events to accumulating stores,
+  3. RECOMPUTES the minute aggregates from the full accumulated enriched stores,
   4. prints current minute aggregates to the console.
-At demo scale read-modify-write on parquet is fine; at scale -> Delta merge.
+
+Recomputing from accumulated *enriched events* (not from per-batch partials) is
+what makes the per-minute totals correct across batches -- including distinct
+users, which cannot be summed from partials (ADR-0008). It is O(n) per batch; the
+production upgrade is native stateful streaming aggregation with watermarks.
 """
 import os
 
@@ -16,20 +21,20 @@ from eightball.aggregations.minute import (
     minute_revenue_by_country, minute_matches_by_country)
 
 BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
-DIM = "/output/user_dim"
+OUT = "/output"
+DIM = f"{OUT}/user_dim"
+ENR_PURCH = f"{OUT}/_enriched_purchases"
+ENR_PLAYERS = f"{OUT}/_enriched_players"
 SCHEMA = ("`event-type` STRING, `time` LONG, `user-id` STRING, "
           "purchase_value DOUBLE, `product-id` STRING, country_name STRING, "
           "platform STRING, `user-a` STRING, `user-b` STRING")
 
 
-def _merge(df, path):
-    """Append df to the parquet at path (read-modify-write; demo scale)."""
+def _read(spark, path):
     try:
-        existing = df.sparkSession.read.parquet(path)
-        df = existing.unionByName(df, allowMissingColumns=True)
+        return spark.read.parquet(path)
     except Exception:
-        pass  # first write: nothing to merge with
-    df.write.mode("overwrite").parquet(path)
+        return None
 
 
 def process_batch(batch_df, _epoch):
@@ -38,25 +43,36 @@ def process_batch(batch_df, _epoch):
         F.from_json(F.col("value").cast("string"), SCHEMA).alias("e")
     ).select("e.*")
 
-    # 1. update user dim from init events in this batch
+    # 1. accumulate the user dimension from init events in this batch
     new_dim = build_user_dim(events)
     if new_dim.head(1):
-        _merge(new_dim, DIM)
+        new_dim.write.mode("append").parquet(DIM)
 
-    # 2. read the full dimension (skip the batch until we have one)
-    try:
-        dim = spark.read.parquet(DIM).dropDuplicates(["uid"])
-    except Exception:
-        return
+    dim = _read(spark, DIM)
+    if dim is None:
+        return                       # no init seen yet; nothing to enrich against
+    dim = dim.dropDuplicates(["uid"])
 
-    # 3. enrich + aggregate this batch, merge outputs
-    enriched = enrich(events, dim)
-    _merge(minute_purchase_metrics(enriched), "/output/minute_purchase_metrics")
-    _merge(minute_revenue_by_country(enriched), "/output/minute_revenue_by_country")
-    _merge(minute_matches_by_country(enriched), "/output/minute_matches_by_country")
+    # 2. enrich this batch and APPEND enriched events to accumulating stores
+    purchases, players = enrich(events, dim)
+    if purchases.head(1):
+        purchases.write.mode("append").parquet(ENR_PURCH)
+    if players.head(1):
+        players.write.mode("append").parquet(ENR_PLAYERS)
 
-    # 4. console visibility
-    minute_purchase_metrics(enriched).show(truncate=False)
+    # 3. RECOMPUTE minute aggregates from the full accumulated enriched stores
+    all_purch = _read(spark, ENR_PURCH)
+    if all_purch is not None:
+        minute_purchase_metrics((all_purch, None)).write.mode("overwrite").parquet(
+            f"{OUT}/minute_purchase_metrics")
+        minute_revenue_by_country((all_purch, None)).write.mode("overwrite").parquet(
+            f"{OUT}/minute_revenue_by_country")
+        minute_purchase_metrics((all_purch, None)).show(truncate=False)  # console
+
+    all_players = _read(spark, ENR_PLAYERS)
+    if all_players is not None:
+        minute_matches_by_country((None, all_players)).write.mode("overwrite").parquet(
+            f"{OUT}/minute_matches_by_country")
 
 
 def main():
@@ -67,7 +83,7 @@ def main():
               .option("subscribe", "events.clean")
               .option("startingOffsets", "earliest").load())
     (stream.writeStream.foreachBatch(process_batch)
-     .option("checkpointLocation", "/output/_chk").start().awaitTermination())
+     .option("checkpointLocation", f"{OUT}/_chk").start().awaitTermination())
 
 
 if __name__ == "__main__":

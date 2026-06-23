@@ -60,3 +60,19 @@ def test_matches_by_country_counts_both_players(spark):
     mc = {r["country_name"]: r["matches"]
           for r in minute_matches_by_country(enrich(df, dim)).collect()}
     assert mc["Portugal"] == 1 and mc["Brazil"] == 1   # both players (ADR-0004)
+
+
+def test_distinct_users_correct_across_accumulated_batches(spark):
+    # Pins the Option-C correctness guarantee (ADR-0008): recomputing metrics over
+    # ACCUMULATED enriched events yields a correct distinct count, which summing
+    # per-batch partials could not. Batch 1 sees {u1,u2}, batch 2 sees {u2,u3};
+    # true distinct over the minute is 3, not 4.
+    import datetime
+    t = datetime.datetime(2026, 6, 23, 16, 43, 0)
+    cols = ["ts", "purchase_value", "user-id", "country_name"]
+    accumulated = [(t, 1.0, "u1", "PT"), (t, 1.0, "u2", "PT"),   # "batch 1"
+                   (t, 1.0, "u2", "PT"), (t, 1.0, "u3", "PT")]    # "batch 2"
+    purchases = spark.createDataFrame(accumulated, cols)
+    m = minute_purchase_metrics((purchases, None)).collect()[0]
+    assert m["purchase_count"] == 4
+    assert m["distinct_users"] == 3
