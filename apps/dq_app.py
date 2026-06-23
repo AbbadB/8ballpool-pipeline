@@ -23,6 +23,8 @@ LOG_EVERY = 500                                   # counter cadence
 
 logging.basicConfig(level=logging.INFO,
                     format='{"lvl":"%(levelname)s","evt":"dq","msg":%(message)s}')
+# Quiet kafka-python's chatty INFO logs so our structured DQ lines are the signal.
+logging.getLogger("kafka").setLevel(logging.WARNING)
 log = logging.getLogger("dq")
 
 
