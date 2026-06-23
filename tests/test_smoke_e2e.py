@@ -31,8 +31,8 @@ def test_pipeline_produces_output():
             time.sleep(5)
         if not _has_output():
             # Surface container logs before teardown so CI failures are debuggable.
-            subprocess.run(["docker", "compose", "logs", "--tail", "60",
-                            "spark-streaming", "dq"], check=False)
+            subprocess.run(["docker", "compose", "logs", "--tail", "250",
+                            "spark-streaming"], check=False)
         assert _has_output(), "no streaming aggregate output appeared within timeout"
     finally:
         subprocess.run(["docker", "compose", "down", "-v"], check=True)
