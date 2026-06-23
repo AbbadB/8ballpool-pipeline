@@ -24,7 +24,9 @@ def _has_output() -> bool:
 def test_pipeline_produces_output():
     subprocess.run(["docker", "compose", "up", "--build", "-d"], check=True)
     try:
-        deadline = time.time() + 150
+        # Generous budget: on a cold runner Spark must pull its image and resolve
+        # the spark-sql-kafka connector via Ivy before the first batch runs.
+        deadline = time.time() + 300
         while time.time() < deadline and not _has_output():
             time.sleep(5)
         assert _has_output(), "no streaming aggregate output appeared within timeout"
