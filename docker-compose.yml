@@ -44,6 +44,10 @@ services:
 
   spark-streaming:
     image: apache/spark:3.5.1
+    # Run as root so Spark can write the checkpoint/output into the bind-mounted
+    # ./output dir. The image's default UID 185 cannot create dirs in a
+    # host-owned mount on Linux (works on Docker Desktop, fails on CI/Linux).
+    user: root
     command: >
       /opt/spark/bin/spark-submit
       --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
@@ -61,6 +65,7 @@ services:
 
   spark-batch:
     image: apache/spark:3.5.1
+    user: root            # see spark-streaming: write into the bind-mounted ./output
     profiles: ["batch"]   # run on demand: docker compose run --rm spark-batch
     command: >
       /opt/spark/bin/spark-submit
