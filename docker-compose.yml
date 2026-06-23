@@ -23,3 +23,56 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+
+  producer:
+    build: .
+    command: python apps/producer.py
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  dq:
+    build: .
+    command: python apps/dq_app.py
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  spark-streaming:
+    image: apache/spark:3.5.1
+    command: >
+      /opt/spark/bin/spark-submit
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      --conf spark.jars.ivy=/tmp/.ivy
+      /app/apps/spark_streaming.py
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      PYTHONPATH: /app/src
+    volumes:
+      - ".:/app"
+      - "./output:/output"
+    depends_on:
+      kafka:
+        condition: service_healthy
+
+  spark-batch:
+    image: apache/spark:3.5.1
+    profiles: ["batch"]   # run on demand: docker compose run --rm spark-batch
+    command: >
+      /opt/spark/bin/spark-submit
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1
+      --conf spark.jars.ivy=/tmp/.ivy
+      /app/apps/spark_batch.py
+    environment:
+      KAFKA_BOOTSTRAP: kafka:9092
+      PYTHONPATH: /app/src
+    volumes:
+      - ".:/app"
+      - "./output:/output"
+    depends_on:
+      kafka:
+        condition: service_healthy
