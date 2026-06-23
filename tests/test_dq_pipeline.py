@@ -51,3 +51,13 @@ def test_dead_letter_keeps_original_payload():
     bad = {"event-type": "logout", "x": 1}
     result = process_event(bad)
     assert result.event == bad   # original preserved for replay
+
+
+def test_batch_partitions_into_ok_and_dead_letter():
+    events = [
+        {"event-type": "init", "time": 1, "user-id": "u1", "country": "1", "platform": "ios"},  # ok
+        {"event-type": "logout"},                                                                # dlq
+        {"event-type": "init", "time": 1, "user-id": "u2", "platform": "ios"},                   # dlq (no country)
+    ]
+    results = [process_event(e) for e in events]
+    assert [r.status for r in results] == ["ok", "dead_letter", "dead_letter"]
