@@ -144,8 +144,11 @@ plan (TDD, step-by-step) in [`docs/plans/`](docs/plans/).
 
 ## What I'd do at 100× scale (deliberate non-goals)
 
-- **Exactly-once.** Currently at-least-once with idempotent aggregates. For real
-  money, transactional Kafka + checkpointed exactly-once.
+- **Exactly-once / restart safety.** Currently at-least-once. Enriched events are
+  appended outside the checkpoint transaction, so a mid-batch restart can
+  double-count — and events have no unique id to dedupe on. Production fix:
+  producer-assigned event id + idempotent sink, or native checkpointed stateful
+  aggregation (ADR-0008).
 - **Native stateful streaming aggregation.** The per-minute recompute is O(n) per
   batch (correct, not incremental). At scale: `withWatermark().groupBy(window()).agg()`
   with a state store and `approx_count_distinct` for mergeable distinct counts

@@ -38,6 +38,18 @@ for both enrichment and the recompute.
   `minute_*` output dirs are written with `overwrite`, so an external reader can
   catch one mid-write (retryable; a demo-scale characteristic, not a data bug).
 
+## Known limitation — restart & exactly-once
+
+The enriched events are appended (`mode("append")`) to `_enriched_*` outside the
+Kafka checkpoint transaction. If the job dies between the append and the offset
+commit, a restart replays those offsets and **re-appends** the same enriched
+events, inflating the recomputed aggregates. True exactly-once is not achievable
+here because **the events carry no unique id** — there is nothing to deduplicate
+on. Closing this would require either (a) a producer-assigned event id + a dedupe
+on the enriched store, or (b) native stateful streaming with Spark's checkpointed
+state and idempotent sinks (the documented upgrade path). For this self-contained
+demo it is at-least-once, and the limitation is documented rather than hidden.
+
 ## Alternatives rejected
 
 - **Append per-batch partials (the first design).** Incorrect for distinct counts
