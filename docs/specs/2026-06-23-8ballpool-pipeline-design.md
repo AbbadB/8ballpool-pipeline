@@ -134,6 +134,10 @@ Each unit has one purpose, a defined interface, and is independently testable.
   in `src/eightball/dq/rules.py`; config in `dq/config.py`) + a thin Kafka
   consume/produce loop in `apps/dq_app.py`.
 - **Depends on:** Kafka. (No native Kafka Streams in Python — see ADR-0001.)
+- **Failure handling:** validates each event at the boundary; decode/schema/transform
+  failures are routed to `events.dlq` (reason + original payload), logged and
+  counted, never crashing the loop. The pure decision lives in
+  `src/eightball/dq/pipeline.py::process_event`. See ADR-0009.
 
 ### 4.3 `apps/spark_batch.py` — daily aggregator (Beginner tier)
 - **Does:** read `events.clean`, compute **distinct users per day by country and
@@ -169,6 +173,7 @@ Each unit has one purpose, a defined interface, and is independently testable.
 | 0006 | Event-time = epoch milliseconds | Faithful to real telemetry; demonstrates event-time vs processing-time understanding. |
 | 0007 | AI-assisted agentic development under a defined harness | Disclosed, not hidden. 7 rules (spec-first, TDD control loop, human-owns-decisions, small reviewable steps, verify-before-done, grounded-in-real-files, provenance honesty) enforced by `CLAUDE.md` + a test-gate hook. Deliberately minimal tooling — no custom skills/subagent fleet (proportionality). |
 | 0008 | Streaming via `foreachBatch` + recompute from accumulated enriched events | Per micro-batch: update user dim from init, enrich match/purchase, append enriched events, recompute minute aggregates from the full accumulated set. Correct across batches incl. distinct users (can't sum partials). O(n)/batch; at scale → native stateful aggregation with watermark + `approx_count_distinct`. |
+| 0009 | DQ error handling: validate at boundary, dead-letter failures, never crash | Each event validated on the way in; decode/schema/transform failures routed to `events.dlq` with `{reason, original, failed_at}`, logged + counted. DLQ is the reprocessing path. |
 
 Each ADR is a short file in `docs/decisions/` (context → decision → consequences
 → alternatives rejected).
@@ -227,9 +232,9 @@ Each ADR is a short file in `docs/decisions/` (context → decision → conseque
   schemas/                  # provided JSON schemas (draft-03)
   src/eightball/            # pure, infra-free logic (unit-tested)
     schemas.py  events.py
-    dq/         rules.py, config.py
+    dq/         rules.py, config.py, pipeline.py   # pipeline.py = validate+transform decision
     aggregations/  daily.py, minute.py
   apps/                     # thin Kafka/Spark wrappers
     producer.py  dq_app.py  spark_batch.py  spark_streaming.py
-  tests/                    # test_schemas/events/dq_rules/daily/minute + test_smoke_e2e
+  tests/                    # schemas/events/dq_rules/dq_pipeline/daily/minute + smoke_e2e
 ```

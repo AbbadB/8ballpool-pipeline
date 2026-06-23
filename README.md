@@ -65,6 +65,34 @@ and `localhost:29092` (external, for clients on the host).
 
 ---
 
+## Data-quality failure handling
+
+The DQ component is resilient and observable — a bad event never crashes the
+pipeline and never passes silently. Each event is validated at the boundary, and
+failures are routed to a dead-letter topic (`events.dlq`) with a reason and the
+original payload (see [ADR-0009](docs/decisions/0009-dq-error-handling.md)).
+
+| Failure | Reason prefix | Routed to |
+|---|---|---|
+| Malformed JSON | `decode:` | `events.dlq` |
+| Unknown / missing `event-type` | `schema:` | `events.dlq` |
+| Schema-invalid (missing field, wrong type) | `schema:` | `events.dlq` |
+| Transform raises | `transform:` | `events.dlq` |
+| Valid | — | `events.clean` |
+
+A dead-letter record looks like:
+
+```json
+{ "reason": "schema: 'country' is a required property",
+  "original": { "event-type": "init", "time": 1, "user-id": "u1", "platform": "ios" },
+  "failed_at": 1782235335939 }
+```
+
+**Reprocessing:** `events.dlq` *is* the replay path — inspect the dead letters, fix
+the offending rule or upstream producer, and replay the `original` payloads back
+onto `events.raw`. Failures are also logged as structured lines with a periodic
+`{processed, clean, dead_letter}` counter.
+
 ## What each tier delivers
 
 | Tier | Requirement | Where |
@@ -107,6 +135,7 @@ Full reasoning, with rejected alternatives, in `docs/decisions/`:
 | [0006](docs/decisions/0006-event-time.md) | `time` is event-time in epoch milliseconds |
 | [0007](docs/decisions/0007-agentic-development.md) | AI-assisted agentic development under a defined harness |
 | [0008](docs/decisions/0008-streaming-mechanics.md) | Streaming via `foreachBatch` + recompute from accumulated enriched events |
+| [0009](docs/decisions/0009-dq-error-handling.md) | DQ error handling: validate at boundary, dead-letter failures, never crash |
 
 The full design spec is in [`docs/specs/`](docs/specs/) and the implementation
 plan (TDD, step-by-step) in [`docs/plans/`](docs/plans/).
